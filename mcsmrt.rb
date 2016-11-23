@@ -7,7 +7,10 @@ require 'trollop'
 ##### Input 
 opts = Trollop::options do
   opt :allReadsInputFile, "File with all the reads which are barcoded and has ccs passes", :type => :string, :short => "-i"
-  opt :eevalue, "Expected error at which you want filtering to take place", :type => :string, :short => "-e"
+  opt :eevalue, "Expected error value greater than which reads will be filtered out.", :type => :string, :short => "-e"
+  opt :ccsvalue, "CCS passes lesser than which reads will be filtered out", :type => :string, :short => "-s"
+  opt :lengthmax, "Maximum length above which reads will be filtered out", :type => :string, :short => "-x"
+  opt :lengthmin, "Manimum length below which reads will be filtered out", :type => :string, :short => "-n"
   opt :uchimedbfile, "Path to database file for the uchime command", :type => :string, :short => "-c"
   opt :utaxdbfile, "Path to database file for the utax command", :type => :string, :short => "-t"
   opt :lineagefastafile, "Path to FASTA file with lineage info for the ublast command", :type => :string, :short => "-l"
@@ -17,12 +20,15 @@ end
 
 ##### Assigning variables to the input and making sure we got all the inputs
 opts[:allReadsInputFile].nil? ==false  ? all_bc_reads_file = opts[:allReadsInputFile] : abort("Must supply the file with all barcoded reads and ccs pass counts with '-i'")
-opts[:eevalue].nil?           ==false  ? ee = opts[:eevalue]                           : abort("Must supply an Expected Error value with '-e'")
-opts[:uchimedbfile].nil?      ==false  ? uchime_db_file = opts[:uchimedbfile]          : abort("Must supply a 'uchime database file' e.g. rdpgold.udb with '-c'")
-opts[:utaxdbfile].nil?        ==false  ? utax_db_file = opts[:utaxdbfile]              : abort("Must supply a 'utax database file' e.g. 16s_ncbi.udb with '-t'")
-opts[:lineagefastafile].nil?  ==false  ? lineage_fasta_file = opts[:lineagefastafile]  : abort("Must supply a 'lineage fasta file' e.g. ncbi_lineage.fasta (for blast) with '-l'")
-opts[:host_db].nil?           ==false  ? human_db = opts[:host_db]                     : abort("Must supply a fasta of the host genome e.g. human_g1k.fasta with '-g'")
-opts[:primerfile].nil?        ==false  ? primer_file = opts[:primerfile]               : abort("Must supply a fasta of the primer sequences e.g primer_seqs.fa with '-p'")
+opts[:eevalue].nil?           ==false  ? ee = opts[:eevalue].to_f                     : abort("Must supply an Expected Error value with '-e'")
+opts[:ccsvalue].nil?          ==false  ? ccs = opts[:ccsvalue].to_i                   : abort("Must supply a CCS passes value with '-s'")
+opts[:lengthmax].nil?         ==false  ? length_max = opts[:lengthmax].to_i           : abort("Must supply a maximum length with '-x'")
+opts[:lengthmin].nil?         ==false  ? length_min = opts[:lengthmin].to_i           : abort("Must supply a minimum length with '-n'")
+opts[:uchimedbfile].nil?      ==false  ? uchime_db_file = opts[:uchimedbfile]         : abort("Must supply a 'uchime database file' e.g. rdpgold.udb with '-c'")
+opts[:utaxdbfile].nil?        ==false  ? utax_db_file = opts[:utaxdbfile]             : abort("Must supply a 'utax database file' e.g. 16s_ncbi.udb with '-t'")
+opts[:lineagefastafile].nil?  ==false  ? lineage_fasta_file = opts[:lineagefastafile] : abort("Must supply a 'lineage fasta file' e.g. ncbi_lineage.fasta (for blast) with '-l'")
+opts[:host_db].nil?           ==false  ? human_db = opts[:host_db]                    : abort("Must supply a fasta of the host genome e.g. human_g1k.fasta with '-g'")
+opts[:primerfile].nil?        ==false  ? primer_file = opts[:primerfile]              : abort("Must supply a fasta of the primer sequences e.g primer_seqs.fa with '-p'")
 
 ##### Making sure we can open the file with all barcoded reads
 abort("Can't open the file with all barcoded reads!") if !File.exist?(all_bc_reads_file)
@@ -32,28 +38,30 @@ script_directory = File.dirname(__FILE__)
 
 ##### Class that stores information about each record from the reads file
 class Read_sequence
-  attr_accessor :read_name, :basename, :ccs, :barcode, :sample, :ee_pretrim, :ee_posttrim, :length_pretrim, :length_posttrim, :host_map, :f_primer_matches, :r_primer_matches, :f_primer_start, :f_primer_end, :r_primer_start, :r_primer_end, :read_orientation, :primer_note, :half_primer_match
+  attr_accessor :read_name, :basename, :ccs, :barcode, :sample, :ee_pretrim, :ee_posttrim, :length_pretrim, :length_posttrim, :host_map, :f_primer_matches, :r_primer_matches, :f_primer_start, :f_primer_end, :r_primer_start, :r_primer_end, :read_orientation, :primer_note, :half_primer_match, :half_match_start, :half_match_end
 
   def initialize
-    @read_name = "" 
-    @basename = ""
-    @ccs = 0
-    @barcode = "" 
-    @sample = "" 
-    @ee_pretrim = 0.0 
-    @ee_posttrim = 0.0 
-    @length_pretrim = 0
-    @length_posttrim = 0
-    @host_map = false 
-    @f_primer_matches = false
-    @r_primer_matches = false
-    @f_primer_start = 0
-    @f_primer_end = 0
-    @r_primer_start = 0
-    @r_primer_end = 0
-    @read_orientation = ""
-    @primer_note = ""
-    @half_primer_match = "NA"
+    @read_name         = "NA" 
+    @basename          = "NA"
+    @ccs               = -1
+    @barcode           = "NA" 
+    @sample            = "NA" 
+    @ee_pretrim        = -1
+    @ee_posttrim       = -1 
+    @length_pretrim    = -1
+    @length_posttrim   = -1
+    @host_map          = false 
+    @f_primer_matches  = false
+    @r_primer_matches  = false
+    @f_primer_start    = "NA"
+    @f_primer_end      = "NA"
+    @r_primer_start    = "NA"
+    @r_primer_end      = "NA"
+    @read_orientation  = "NA"
+    @primer_note       = "NA"
+    @half_primer_match = false
+    @half_match_start  = "NA"
+    @half_match_end    = "NA"
   end
 end
 
@@ -75,11 +83,8 @@ def write_to_fastq (fh, header, sequence, quality)
 end
 
 ##### Method whcih takes an fq file as argument and returns a hash with the read name and ee
-def get_ee_from_fq_file (file, ee, suffix)
-	file_basename = File.basename(file, ".*")
-	
-	#puts file_basename
-	`usearch -fastq_filter #{file} -fastqout #{file_basename}_#{suffix} -fastq_maxee 20000 -fastq_qmax 75 -fastq_eeout -sample all`
+def get_ee_from_fq_file (file_basename, ee, suffix)
+	`usearch -fastq_filter #{file_basename}.fastq -fastqout #{file_basename}_#{suffix} -fastq_maxee 20000 -fastq_qmax 75 -fastq_eeout -sample all`
 	
 	# Hash that is returned from this method (read name - key, ee - value)
 	ee_hash = {}
@@ -97,11 +102,9 @@ def get_ee_from_fq_file (file, ee, suffix)
 end
 
 ##### Mapping reads to the human genome
-def map_to_human_genome (file, human_db)   
-	file_basename = File.basename(file, ".*")
-	                                                                                                            
+def map_to_human_genome (file_basename, human_db)                                                             
  	#align all reads to the human genome                                                                                                                   
-  `bwa mem -t 15 #{human_db} #{file} > #{file_basename}_host_map.sam`
+  `bwa mem -t 15 #{human_db} #{file_basename}.fastq > #{file_basename}_host_map.sam`
   
   #sambamba converts sam to bam format                                                                                                                   
   `sambamba view -S -f bam #{file_basename}_host_map.sam -o #{file_basename}_host_map.bam`
@@ -124,11 +127,9 @@ def map_to_human_genome (file, human_db)
 end
 
 ##### Method for primer matching 
-def primer_match (script_directory, fastq_file, primer_file)
-	file_basename = File.basename(fastq_file, ".*")
-	
+def primer_match (script_directory, file_basename, primer_file)
 	# Run the usearch command for primer matching
-  `usearch -search_oligodb #{fastq_file} -db #{primer_file} -strand both -userout #{file_basename}_primer_map.txt -userfields query+target+qstrand+diffs+tlo+thi+qlo+qhi`                                                                                                    
+  `usearch -search_oligodb #{file_basename}.fastq -db #{primer_file} -strand both -userout #{file_basename}_primer_map.txt -userfields query+target+qstrand+diffs+tlo+thi+qlo+qhi`                                                                                                    
 
   # Run the script which parses the primer matching output
   `ruby #{script_directory}/primer_matching.rb -p #{file_basename}_primer_map.txt -o #{file_basename}_primer_info.txt` 
@@ -159,7 +160,6 @@ def primer_match (script_directory, fastq_file, primer_file)
   	end
 
   return return_hash
-
 end
 
 def create_half_primer_files (primer_file_path)
@@ -198,13 +198,10 @@ def create_half_primer_files (primer_file_path)
   abort("!!!!The file primer_half_rev (required for primer matching with half the reverse primer sequence) is empty!!!!") if File.zero?("primer_half_rev.fasta")
   abort("!!!!The file primer_half_fow (required for primer matching with half the forward primer sequence) does not exist!!!!") if !File.exists?("primer_half_fow.fasta")
   abort("!!!!The file primer_half_fow (required for primer matching with half the forward primer sequence) is empty!!!!") if File.zero?("primer_half_fow.fasta")
-  
 end 
 
 ##### Method to retrieve singletons
-def retrieve_singletons (script_directory, seqs_hash, singletons_hash, fastq_file)
-  file_basename = File.basename(fastq_file, ".*")
-
+def retrieve_singletons (script_directory, seqs_hash, singletons_hash, file_basename)
   #Create separate fq files for the ones missing the forward or reverse macthes!
   fh1 = File.open("#{file_basename}_singletons_forward_missing.fq", "w")
   fh2 = File.open("#{file_basename}_singletons_reverse_missing.fq", "w")
@@ -250,14 +247,15 @@ def retrieve_singletons (script_directory, seqs_hash, singletons_hash, fastq_fil
     else
       line_split = line.chomp.split("\t")
       key = line_split[0]
+      return_hash_fm[key] = []
       seq_length = seqs_hash[key][1].length
       #puts seqs_hash["m151002_181152_42168_c100863312550000001823190302121650_s1_p0/33682/ccs"][1].length
       if line_split[1] == "true" and line_split[2] == "true" and line_split[7] == "+" and line_split[3].to_i <= 100 and line_split[5].to_i >= seq_length-100
-        return_hash_fm[key] = true
+        return_hash_fm[key] = [true, line_split[4], line_split[5]]
       elsif line_split[1] == "true" and line_split[2] == "true" and line_split[7] == "-" and line_split[3].to_i >= seq_length-100 and line_split[5].to_i <= 100
-        return_hash_fm[key] = true
+        return_hash_fm[key] = [true, line_split[3], line_split[6]]
       else
-        return_hash_fm[key] = false
+        return_hash_fm[key] = [false, 0, 0]
       end
     end
   end
@@ -268,13 +266,14 @@ def retrieve_singletons (script_directory, seqs_hash, singletons_hash, fastq_fil
     else
       line_split = line.chomp.split("\t")
       key = line_split[0]
+      return_hash_rm[key] = []
       seq_length = seqs_hash[key][1].length
       if line_split[1] == "true" and line_split[2] == "true" and line_split[7] == "+" and line_split[3].to_i <= 100 and line_split[5].to_i >= seq_length-100
-        return_hash_fm[key] = true
+        return_hash_rm[key] = [true, line_split[4], line_split[5]]
       elsif line_split[1] == "true" and line_split[2] == "true" and line_split[7] == "-" and line_split[3].to_i >= seq_length-100 and line_split[5].to_i <= 100
-        return_hash_rm[key] = true
+        return_hash_rm[key] = [true, line_split[3], line_split[6]]
       else
-        return_hash_rm[key] = false
+        return_hash_rm[key] = [false, 0, 0]
       end
     end
   end
@@ -282,22 +281,101 @@ def retrieve_singletons (script_directory, seqs_hash, singletons_hash, fastq_fil
   return return_hash_fm, return_hash_rm
 end 
 
+def trim_and_orient (f_primer_matches, r_primer_matches, f_primer_start, f_primer_end, r_primer_start, r_primer_end, read_orientation, half_primer_match, half_match_start, half_match_end, seq, qual)
+  # Variable which will have the seq and qual stings oriented and trimmed
+  seq_trimmed = ""
+  qual_trimmed = ""
+
+  # For cases when both primers matched
+  if f_primer_matches == true and r_primer_matches == true
+    if read_orientation == "+"
+      #puts "#{f_primer_end}..#{r_primer_start}" 
+      seq_trimmed = seq[f_primer_end..r_primer_start]
+      qual_trimmed = qual[f_primer_end..r_primer_start]
+    elsif read_orientation == "-"
+      #puts "#{r_primer_end}..#{f_primer_start}"
+      seq = Bio::Sequence::NA.new(seq)
+      revcom_seq = seq.complement.upcase
+      rev_qual = qual.reverse
+      seq_trimmed = revcom_seq[r_primer_end..f_primer_start]
+      qual_trimmed = rev_qual[r_primer_end..f_primer_start]
+    end
+  # For cases when singleton matching had to occur  
+  elsif f_primer_matches == false or r_primer_matches == false
+    if half_primer_match == true
+      if read_orientation == "+" 
+        #puts "#{half_match_start}..#{half_match_end}"
+        seq_trimmed = seq[half_match_start..half_match_end]
+        qual_trimmed = qual[half_match_start..half_match_end]
+      elsif read_orientation == "-"
+        #puts "#{half_match_end}..#{half_match_start}"
+        seq = Bio::Sequence::NA.new(seq)
+        revcom_seq = seq.complement.upcase
+        rev_qual = qual.reverse
+        seq_trimmed = revcom_seq[half_match_end..half_match_start]
+        qual_trimmed = rev_qual[half_match_end..half_match_start]
+      end
+    end
+  end
+
+  if seq_trimmed != ""
+    ee = 0.00
+    seq_trimmed_bio = Bio::Fastq.new("@name\n#{seq_trimmed}\n+\n#{qual_trimmed}")
+    quality_scores_array = seq_trimmed_bio.quality_scores
+    quality_scores_array.each do |each_qual|
+      prob_wrong = -each_qual.to_f/10
+      prob_wrong_2 = 10**prob_wrong
+      ee += prob_wrong_2
+    end
+    ee_2 = ee.round(2)
+  end
+    
+  #puts ee
+
+  return seq_trimmed.length, seq_trimmed, qual_trimmed, ee_2
+end
+
 
 ##### Work with the file which has all the reads
-def process_all_bc_reads_file (script_directory, all_bc_reads_file, all_reads_hash, ee, human_db, primer_file)
-  # Opening the file with all original reads for writing with bio module
-  all_bc_reads = Bio::FlatFile.auto(all_bc_reads_file)
-  
+def process_all_bc_reads_file (script_directory, all_bc_reads_file, ee, human_db, primer_file)
+  # Get the basename of the fastq file
+  file_basename = File.basename(all_bc_reads_file, ".*")
+
+  # Opening the file in which all the information is going to be written to... and printing the header to it! 
+  all_info_out_file = File.open("#{file_basename}_info.txt", "w")
+  all_info_out_file.puts("read_name\tbasename\tccs\tbarcode\tsample\tee_pretrim\tee_posttrim\tlength_pretrim\tlength_posttrim\thost_map\tf_primer_matches\tr_primer_matches\tf_primer_start\tf_primer_end\tr_primer_start\tr_primer_end\tread_orientation\tprimer_note\thalf_primer_match")
+
+  # Opening the file which which will have the trimmed and oriented sequences
+  trimmed_out_file = File.open("#{file_basename}_trimmed.fastq", "w")
+
+  # Get the seqs which map to the host genome by calling the map_to_host_genome method
+  mapped_count, mapped_string = map_to_human_genome(file_basename, human_db) 
+  #puts mapped_string.inspect 
+
+  # Primer matching by calling the primer_match method
+  count_no_primer_match = 0
+  primer_record_hash = primer_match(script_directory, file_basename, primer_file)
+  #puts primer_record_hash.inspect
+
+  # Prereqs for the next loop
+  # Create the hash which is going to store all infor for each read using the Read_sequence class
+  all_reads_hash = {}
   # Create a sequence hash which has all the sequence and quality strings for each record
   seqs_hash = {}
-  
+  # Create a hash with all the reads which are singletons
+  singletons_hash = {}
+  # Create a hash which has the trimmed seqs
+  trimmed_hash = {}
+  # Opening the file with all original reads for writing with bio module
+  all_bc_reads = Bio::FlatFile.auto(all_bc_reads_file)
+
   # Loop through the fq file 
   all_bc_reads.each do |entry|
-    # Fill the all_bc_hash with some basic info that we can get (read_name, barcode, ccs, length_pretrim)
     def_split = entry.definition.split(";")
     read_name = def_split[0]
     #puts def_split
-    
+
+    # Fill the all_bc_hash with some basic info that we can get (read_name, barcode, ccs, length_pretrim)
     if def_split[1].include?("barcodelabel")
       basename = def_split[1].split("=")[1]
       barcode = basename.split("_")[0]
@@ -309,7 +387,7 @@ def process_all_bc_reads_file (script_directory, all_bc_reads_file, all_reads_ha
       sample = basename.split("_")[1..-1].join("_")
       ccs = def_split[1].split("=")[1].to_i
     else
-      puts "Header does not have barcode label and ccs counts!"
+      abort("Header does not have barcode label and ccs counts! Headers should have the format @read_name;barcodelabel=sample_name;ccs=ccs_passes. Use get_fastqs.rb for this purpose.")
     end
     all_reads_hash[read_name] = Read_sequence.new
     all_reads_hash[read_name].read_name = read_name
@@ -318,106 +396,123 @@ def process_all_bc_reads_file (script_directory, all_bc_reads_file, all_reads_ha
     all_reads_hash[read_name].barcode = barcode
     all_reads_hash[read_name].sample = sample
     all_reads_hash[read_name].length_pretrim = entry.naseq.size
-#TODO: Add in the primer matching step here, to keep from having to read throught he entire hash again
-#Have to have the primer matched info, to calculate singleton primers    
 
-    # Populate the s
-    seqs_hash[read_name] = [entry.naseq.upcase, entry.quality_string]
+    # Populate the seqs hash
+    seqs_hash[read_name] = [entry.naseq.upcase, entry.quality_string, entry.definition]
     
-  end
-  
-  # Get ee_pretrim
-  ee_pretrim_hash = get_ee_from_fq_file(all_bc_reads_file, ee, "ee_pretrim.fq")
-  #puts ee_pretrim_hash
-  ee_pretrim_hash.each do |k, v|
-    #puts all_reads_hash[k]
-    all_reads_hash[k].ee_pretrim = v
-  end
-  
-  # Get the seqs which map to the host genome
-  mapped_count, mapped_string = map_to_human_genome(all_bc_reads_file, human_db) 
-  #puts mapped_string.inspect	
-
-	# Primer matching
-	count_no_primer_match = 0
-  primer_record_hash = primer_match(script_directory, all_bc_reads_file, primer_file)
-  #puts primer_record_hash.inspect
-
-  # Fill the all info hash with host mapping, primer macthing info!
-  # Get the records which are singletons (which map to only one primer)
-  singletons_hash = {}
-  all_reads_hash.each do |k, v|
-  	# Store the host genome mapping info
-  	if mapped_string.include?(k)
-			all_reads_hash[k].host_map = true
-		end	
-  	# Store the primer matching info
-  	if primer_record_hash.key?(k)
-  		all_reads_hash[k].f_primer_matches = primer_record_hash[k][0]
-  		all_reads_hash[k].r_primer_matches = primer_record_hash[k][1]
-  		all_reads_hash[k].f_primer_start = primer_record_hash[k][2].to_i
-  		all_reads_hash[k].f_primer_end = primer_record_hash[k][3].to_i
-  		all_reads_hash[k].r_primer_start = primer_record_hash[k][4].to_i
-  		all_reads_hash[k].r_primer_end = primer_record_hash[k][5].to_i
-  		all_reads_hash[k].read_orientation = primer_record_hash[k][6]
-      all_reads_hash[k].primer_note = primer_record_hash[k][7]
-  		# Get singletons hash 
-  		if primer_record_hash[k][0] == false or primer_record_hash[k][1] == false
-  			singletons_hash[k] = [primer_record_hash[k][0], primer_record_hash[k][1]]
-  		end
-  	else
-  		count_no_primer_match += 1
-  		all_reads_hash[k].f_primer_matches = "NA"
-  		all_reads_hash[k].r_primer_matches = "NA"
-  		all_reads_hash[k].f_primer_start = "NA"
-  		all_reads_hash[k].f_primer_end = "NA"
-  		all_reads_hash[k].r_primer_start = "NA"
-  		all_reads_hash[k].r_primer_end = "NA"
-  		all_reads_hash[k].read_orientation = "NA" 
-      all_reads_hash[k].primer_note = "no_primer_hits"
-  	end
+    # Store the host genome mapping info
+    if mapped_string.include?(read_name)
+      all_reads_hash[read_name].host_map = true
+    end 
+    
+    # Store the primer matching info
+    if primer_record_hash.key?(read_name)
+      all_reads_hash[read_name].f_primer_matches = primer_record_hash[read_name][0]
+      all_reads_hash[read_name].r_primer_matches = primer_record_hash[read_name][1]
+      all_reads_hash[read_name].f_primer_start = primer_record_hash[read_name][2].to_i
+      all_reads_hash[read_name].f_primer_end = primer_record_hash[read_name][3].to_i
+      all_reads_hash[read_name].r_primer_start = primer_record_hash[read_name][4].to_i
+      all_reads_hash[read_name].r_primer_end = primer_record_hash[read_name][5].to_i
+      all_reads_hash[read_name].read_orientation = primer_record_hash[read_name][6]
+      all_reads_hash[read_name].primer_note = primer_record_hash[read_name][7]
+      # Get singletons hash 
+      if primer_record_hash[read_name][0] == false or primer_record_hash[read_name][1] == false
+        singletons_hash[read_name] = [primer_record_hash[read_name][0], primer_record_hash[read_name][1]]
+      end
+    else
+      count_no_primer_match += 1
+      all_reads_hash[read_name].primer_note = "no_primer_hits"
+    end
   end
   #puts all_reads_hash["m151002_181152_42168_c100863312550000001823190302121650_s1_p0/5872/ccs"].inspect # test for a sequence which maps to the host genome
   #puts count_no_primer_match
   #puts singletons_hash.length
   
+  # Get ee_pretrim
+  ee_pretrim_hash = get_ee_from_fq_file(file_basename, ee, "ee_pretrim.fq")
+  #puts ee_pretrim_hash
+  ee_pretrim_hash.each do |k, v|
+    #puts all_reads_hash[read_name]
+    all_reads_hash[k].ee_pretrim = v
+  end
+  
   # Call the method which creates the primer files with half of the sequences
   create_half_primer_files(primer_file)
   
   # Call the method which retrieves singletons
-  return_hash_fm, return_hash_rm = retrieve_singletons(script_directory, seqs_hash, singletons_hash, all_bc_reads_file)
+  return_hash_fm, return_hash_rm = retrieve_singletons(script_directory, seqs_hash, singletons_hash, file_basename)
   #puts return_hash_fm.length + return_hash_rm.length
   #puts return_hash_fm["m151002_181152_42168_c100863312550000001823190302121650_s1_p0/33682/ccs"].inspect
 
   # Add singletons info to the all read info hash
   all_reads_hash.each do |k, v|
-    if return_hash_fm.key?(k) and return_hash_fm[k] == true
+    if return_hash_fm.key?(k) and return_hash_fm[k][0] == true
       all_reads_hash[k].half_primer_match = true
-    elsif return_hash_fm.key?(k) and return_hash_fm[k] == false
-      all_reads_hash[k].half_primer_match = false
-    elsif return_hash_rm.key?(k) and return_hash_rm[k] == true
+      all_reads_hash[k].half_match_start = return_hash_fm[k][1].to_i
+      all_reads_hash[k].half_match_end = return_hash_fm[k][2].to_i
+    elsif return_hash_rm.key?(k) and return_hash_rm[k][0] == true
       all_reads_hash[k].half_primer_match = true
-    elsif return_hash_rm.key?(k) and return_hash_rm[k] == false
-      all_reads_hash[k].half_primer_match = false
+      all_reads_hash[k].half_match_start = return_hash_rm[k][1].to_i
+      all_reads_hash[k].half_match_end = return_hash_rm[k][2].to_i
     end
+  
+    # Trim and orient sequences with the trim_and_orient method
+    seq_trimmed_length, seq_trimmed, qual_trimmed, ee = trim_and_orient(all_reads_hash[k].f_primer_matches, all_reads_hash[k].r_primer_matches, all_reads_hash[k].f_primer_start, all_reads_hash[k].f_primer_end, all_reads_hash[k].r_primer_start, all_reads_hash[k].r_primer_end, all_reads_hash[k].read_orientation, all_reads_hash[k].half_primer_match, all_reads_hash[k].half_match_start, all_reads_hash[k].half_match_end, seqs_hash[k][0], seqs_hash[k][1])
+    
+    if seq_trimmed == ""
+      next
+    else
+      # Add the length_postrim info to the all_reads_hash
+      all_reads_hash[k].length_posttrim = seq_trimmed_length
+      # Add the ee postrim to the all_reads_hash
+      all_reads_hash[k].ee_posttrim = ee
+      # write the oriented and trimmed sequences to an output file
+      write_to_fastq(trimmed_out_file, seqs_hash[k][2], seq_trimmed, qual_trimmed)
+      # populate the hash havng the trimmed seqs
+      trimmed_hash[seqs_hash[k][2]] = [seq_trimmed, qual_trimmed]
+    end
+
+    # Write all reads to output file
+    all_info_out_file.puts("#{k}\t#{all_reads_hash[k].basename}\t#{all_reads_hash[k].ccs}\t#{all_reads_hash[k].barcode}\t#{all_reads_hash[k].sample}\t#{all_reads_hash[k].ee_pretrim}\t#{all_reads_hash[k].ee_posttrim}\t#{all_reads_hash[k].length_pretrim}\t#{all_reads_hash[k].length_posttrim}\t#{all_reads_hash[k].host_map}\t#{all_reads_hash[k].f_primer_matches}\t#{all_reads_hash[k].r_primer_matches}\t#{all_reads_hash[k].f_primer_start}\t#{all_reads_hash[k].f_primer_end}\t#{all_reads_hash[k].r_primer_start}\t#{all_reads_hash[k].r_primer_end}\t#{all_reads_hash[k].read_orientation}\t#{all_reads_hash[k].primer_note}\t#{all_reads_hash[k].half_primer_match}")
   end
 
+  # Close the output file in which the trimmed and oriented seqs were written
+  trimmed_out_file.close
+
+  # Close the output file which has all the info
+  all_info_out_file.close   
+
+  # return the all info hash and trimmed hash
+  return all_reads_hash, trimmed_hash
 end
 
 
 ##################### MAIN PROGRAM #######################
+# Calling the method which then calls all the other methods! 
+all_reads_hash, trimmed_hash = process_all_bc_reads_file(script_directory, all_bc_reads_file, ee, human_db, primer_file)
 
-# Create the hash which is going to store all infor for each read using the Read_sequence class
-all_reads_hash = {}
-process_all_bc_reads_file(script_directory, all_bc_reads_file, all_reads_hash, ee, human_db, primer_file)
-#puts all_reads_hash
-#puts all_reads_hash["m151002_181152_42168_c100863312550000001823190302121650_s1_p0/33682/ccs"].inspect
+final_fastq_file = File.open("sequences_for_clustering.fq", "w")
+final_fastq_basename = File.basename(final_fastq_file, ".fq")
 
-# Write all the info to a file
-file_basename = File.basename(all_bc_reads_file, ".*")
-all_info_out_file = File.open("all_bc_reads_info.txt", "w")
-all_info_out_file.puts("read_name\tbasename\tccs\tbarcode\tsample\tee_pretrim\tee_posttrim\tlength_pretrim\tlength_posttrim\thost_map\tf_primer_matches\tr_primer_matches\tf_primer_start\tf_primer_end\tr_primer_start\tr_primer_end\tread_orientation\tprimer_note\thalf_primer_match")
-
-all_reads_hash.each do |k, v|
-  all_info_out_file.puts("#{k}\t#{all_reads_hash[k].basename}\t#{all_reads_hash[k].ccs}\t#{all_reads_hash[k].barcode}\t#{all_reads_hash[k].sample}\t#{all_reads_hash[k].ee_pretrim}\t#{all_reads_hash[k].ee_posttrim}\t#{all_reads_hash[k].length_pretrim}\t#{all_reads_hash[k].length_posttrim}\t#{all_reads_hash[k].host_map}\t#{all_reads_hash[k].f_primer_matches}\t#{all_reads_hash[k].r_primer_matches}\t#{all_reads_hash[k].f_primer_start}\t#{all_reads_hash[k].f_primer_end}\t#{all_reads_hash[k].r_primer_start}\t#{all_reads_hash[k].r_primer_end}\t#{all_reads_hash[k].read_orientation}\t#{all_reads_hash[k].primer_note}\t#{all_reads_hash[k].half_primer_match}")
+trimmed_hash.each do |key, value|
+  #puts key, value
+  key_in_all_reads_hash = key.split(";")[0]
+  #puts all_reads_hash[key_in_all_reads_hash].read_name
+  if all_reads_hash[key_in_all_reads_hash].ccs >= ccs and all_reads_hash[key_in_all_reads_hash].ee_posttrim <= ee and all_reads_hash[key_in_all_reads_hash].length_posttrim >= length_min and all_reads_hash[key_in_all_reads_hash].length_posttrim <= length_max
+    write_to_fastq(final_fastq_file, key, value[0], value[1])
+  end
 end
+
+final_fastq_file.close
+
+# Running the usearch commands for clustering
+`sh #{script_directory}/uparse_commands.sh #{final_fastq_basename} #{uchime_db_file} #{utax_db_file}`
+
+# Running the command to give a report of counts
+`ruby #{script_directory}/get_report.rb #{final_fastq_basename}`
+  
+# Running blast on the OTUs                                                                                                                            
+`usearch -ublast #{final_fastq_basename}_OTU_s2.fa -db #{lineage_fasta_file} -top_hit_only -id 0.9 -blast6out #{final_fastq_basename}_blast.txt -strand both -evalue 0.01 -threads 15 -accel 0.3`
+
+# Running the script whcih gives a final file with all the clustering info
+`ruby #{script_directory}/final_parsing.rb -b #{final_fastq_basename}_blast.txt -u #{final_fastq_basename}_OTU_table_utax_map.txt -o #{final_fastq_basename}_final.txt`
