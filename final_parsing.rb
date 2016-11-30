@@ -21,7 +21,7 @@ blast_file.each do |line|
 		strain = line_split[1].split(";")[2].split("=")[1]
 		query = line_split[1].split(";")[1].split("=")[1]
 	else
-		starin = "NA"
+		strain = "NA"
 		query = line_split[1]
 	end
 	# Check if 16s completeness is there in query

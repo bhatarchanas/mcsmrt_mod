@@ -2,12 +2,14 @@
 require 'bio'
 require 'trollop'
 
-#USAGE: ruby mcsmrt.rb -i #{all_bc_reads_input_file} -e 1 -c ../rdp_gold.fa -t ../16s_ncbi_database/16s_lineage_short_species_name_reference_database.udb -l ../16s_ncbi_database/16sMicrobial_ncbi_lineage.fasta -g ../human_g1k_v37.fasta -p ../primers.fasta
+#USAGE: ruby ../mcsmrt_mod/mcsmrt.rb -i all_bc_reads.fastq -e 1 -s 5 -x 2000 -n 500 -c ../rdp_gold.fa -t ../lineanator/16sMicrobial_ncbi_lineage_reference_database.udb -l ../lineanator/16sMicrobial_ncbi_lineage.fasta -g ../human_g1k_v37.fasta -p ../primers.fasta
 
 ##### Input 
 opts = Trollop::options do
-  opt :allReadsInputFile, "File with all the reads which are barcoded and has ccs passes", :type => :string, :short => "-i"
-  opt :eevalue, "Expected error value greater than which reads will be filtered out.", :type => :string, :short => "-e"
+  opt :allFiles, "Use all files in the given directory name (with -d option) for clustering", :short => "-a"
+  opt :foldername, "Folder with the demultiplexed files for clustering", :type => :string, :short => "-f"
+  opt :samplelist, "File with a list of file names which are to be merged and clustered together", :type => :string, :short => "-i"
+  opt :eevalue, "Expected error value greater than which reads will be filtered out", :type => :string, :short => "-e"
   opt :ccsvalue, "CCS passes lesser than which reads will be filtered out", :type => :string, :short => "-s"
   opt :lengthmax, "Maximum length above which reads will be filtered out", :type => :string, :short => "-x"
   opt :lengthmin, "Manimum length below which reads will be filtered out", :type => :string, :short => "-n"
@@ -19,7 +21,23 @@ opts = Trollop::options do
 end 
 
 ##### Assigning variables to the input and making sure we got all the inputs
-opts[:allReadsInputFile].nil? ==false  ? all_bc_reads_file = opts[:allReadsInputFile] : abort("Must supply the file with all barcoded reads and ccs pass counts with '-i'")
+if opts[:allFiles] == true     
+  all_files = "*.fq"  
+else
+  all_files = nil   
+end  
+
+if opts[:samplelist] != nil  
+  sample_list = opts[:samplelist]
+else
+  sample_list = nil
+end              
+
+if opts[:allFiles] == false and opts[:samplelist] == nil
+  abort("Must specify if you want to use all files in the folder with '-a' or give a file with a list of file names for clustering with '-i'")
+end
+
+opts[:foldername].nil?        ==false  ? folder_name = opts[:foldername]              : abort("Must supply the name of the folder in which the demultiplexed files exist with '-f'")
 opts[:eevalue].nil?           ==false  ? ee = opts[:eevalue].to_f                     : abort("Must supply an Expected Error value with '-e'")
 opts[:ccsvalue].nil?          ==false  ? ccs = opts[:ccsvalue].to_i                   : abort("Must supply a CCS passes value with '-s'")
 opts[:lengthmax].nil?         ==false  ? length_max = opts[:lengthmax].to_i           : abort("Must supply a maximum length with '-x'")
@@ -29,9 +47,6 @@ opts[:utaxdbfile].nil?        ==false  ? utax_db_file = opts[:utaxdbfile]       
 opts[:lineagefastafile].nil?  ==false  ? lineage_fasta_file = opts[:lineagefastafile] : abort("Must supply a 'lineage fasta file' e.g. ncbi_lineage.fasta (for blast) with '-l'")
 opts[:host_db].nil?           ==false  ? human_db = opts[:host_db]                    : abort("Must supply a fasta of the host genome e.g. human_g1k.fasta with '-g'")
 opts[:primerfile].nil?        ==false  ? primer_file = opts[:primerfile]              : abort("Must supply a fasta of the primer sequences e.g primer_seqs.fa with '-p'")
-
-##### Making sure we can open the file with all barcoded reads
-abort("Can't open the file with all barcoded reads!") if !File.exist?(all_bc_reads_file)
 
 ##### Get the path to the directory in which the scripts exist 
 script_directory = File.dirname(__FILE__)
@@ -67,6 +82,25 @@ end
 
 ##################### METHODS #######################
 
+##### Method to concatenate files to create one file for clustering
+def concat_files (folder_name, all_files, sample_list)
+  #puts all_files
+  if all_files.nil?
+    sample_list_file = File.open(sample_list)
+    list = []
+    sample_list_file.each do |line|
+      list.push("#{folder_name}/"+line.strip)
+    end
+    #puts list
+    `cat #{list.join(" ")} > all_bc_reads.fq`
+
+  else
+    `cat #{folder_name}/#{all_files} > all_bc_reads.fq` 
+  end
+
+  abort("!!!!The file with all the reads required for clustering does not exist!!!!") if !File.exists?("all_bc_reads.fq")
+end
+
 ##### Method to write reads in fastq format
 #fh = File handle, header = read header (string), sequence = read sequence, quality = phred quality scores
 def write_to_fastq (fh, header, sequence, quality)
@@ -84,7 +118,7 @@ end
 
 ##### Method whcih takes an fq file as argument and returns a hash with the read name and ee
 def get_ee_from_fq_file (file_basename, ee, suffix)
-	`usearch -fastq_filter #{file_basename}.fastq -fastqout #{file_basename}_#{suffix} -fastq_maxee 20000 -fastq_qmax 75 -fastq_eeout -sample all`
+	`usearch -fastq_filter #{file_basename}.fq -fastqout #{file_basename}_#{suffix} -fastq_maxee 20000 -fastq_qmax 75 -fastq_eeout -sample all`
 	
 	# Hash that is returned from this method (read name - key, ee - value)
 	ee_hash = {}
@@ -102,9 +136,9 @@ def get_ee_from_fq_file (file_basename, ee, suffix)
 end
 
 ##### Mapping reads to the human genome
-def map_to_human_genome (file_basename, human_db)                                                             
+def map_to_human_genome (file_basename, human_db)
  	#align all reads to the human genome                                                                                                                   
-  `bwa mem -t 15 #{human_db} #{file_basename}.fastq > #{file_basename}_host_map.sam`
+  `bwa mem -t 15 #{human_db} #{file_basename}.fq > #{file_basename}_host_map.sam`
   
   #sambamba converts sam to bam format                                                                                                                   
   `sambamba view -S -f bam #{file_basename}_host_map.sam -o #{file_basename}_host_map.bam`
@@ -129,7 +163,7 @@ end
 ##### Method for primer matching 
 def primer_match (script_directory, file_basename, primer_file)
 	# Run the usearch command for primer matching
-  `usearch -search_oligodb #{file_basename}.fastq -db #{primer_file} -strand both -userout #{file_basename}_primer_map.txt -userfields query+target+qstrand+diffs+tlo+thi+qlo+qhi`                                                                                                    
+  `usearch -search_oligodb #{file_basename}.fq -db #{primer_file} -strand both -userout #{file_basename}_primer_map.txt -userfields query+target+qstrand+diffs+tlo+thi+qlo+qhi`                                                                                                    
 
   # Run the script which parses the primer matching output
   `ruby #{script_directory}/primer_matching.rb -p #{file_basename}_primer_map.txt -o #{file_basename}_primer_info.txt` 
@@ -162,6 +196,7 @@ def primer_match (script_directory, file_basename, primer_file)
   return return_hash
 end
 
+##### Method to create the fasta files with half the length of the primers in order to retrieve singletons
 def create_half_primer_files (primer_file_path)
   # Open the primer file
   primer_file = Bio::FlatFile.auto(primer_file_path, "r")
@@ -281,6 +316,7 @@ def retrieve_singletons (script_directory, seqs_hash, singletons_hash, file_base
   return return_hash_fm, return_hash_rm
 end 
 
+##### Method to trim and orient the sequences
 def trim_and_orient (f_primer_matches, r_primer_matches, f_primer_start, f_primer_end, r_primer_start, r_primer_end, read_orientation, half_primer_match, half_match_start, half_match_end, seq, qual)
   # Variable which will have the seq and qual stings oriented and trimmed
   seq_trimmed = ""
@@ -488,25 +524,42 @@ end
 
 
 ##################### MAIN PROGRAM #######################
+
+# Calling the method which comcatenates files
+concat_files(folder_name, all_files, sample_list)
+
+# Getting the name of the file which has all the reads
+all_bc_reads_file = "all_bc_reads.fq"
+
 # Calling the method which then calls all the other methods! 
 all_reads_hash, trimmed_hash = process_all_bc_reads_file(script_directory, all_bc_reads_file, ee, human_db, primer_file)
 
 final_fastq_file = File.open("sequences_for_clustering.fq", "w")
 final_fastq_basename = File.basename(final_fastq_file, ".fq")
 
+file_for_usearch_global = File.open("sequences_for_usearch_global.fq", "w")
+file_for_usearch_gloabal_basename = File.basename(file_for_usearch_global)
+
 trimmed_hash.each do |key, value|
   #puts key, value
   key_in_all_reads_hash = key.split(";")[0]
   #puts all_reads_hash[key_in_all_reads_hash].read_name
-  if all_reads_hash[key_in_all_reads_hash].ccs >= ccs and all_reads_hash[key_in_all_reads_hash].ee_posttrim <= ee and all_reads_hash[key_in_all_reads_hash].length_posttrim >= length_min and all_reads_hash[key_in_all_reads_hash].length_posttrim <= length_max
+  
+  if all_reads_hash[key_in_all_reads_hash].ccs >= ccs and all_reads_hash[key_in_all_reads_hash].ee_posttrim <= ee and all_reads_hash[key_in_all_reads_hash].length_posttrim >= length_min and all_reads_hash[key_in_all_reads_hash].length_posttrim <= length_max and all_reads_hash[key_in_all_reads_hash].host_map == false
     write_to_fastq(final_fastq_file, key, value[0], value[1])
   end
+
+  if all_reads_hash[key_in_all_reads_hash].ccs >= ccs and all_reads_hash[key_in_all_reads_hash].length_posttrim >= length_min and all_reads_hash[key_in_all_reads_hash].length_posttrim <= length_max and all_reads_hash[key_in_all_reads_hash].host_map == false
+    write_to_fastq(file_for_usearch_global, key, value[0], value[1])
+  end
+
 end
 
 final_fastq_file.close
+file_for_usearch_global.close
 
 # Running the usearch commands for clustering
-`sh #{script_directory}/uparse_commands.sh #{final_fastq_basename} #{uchime_db_file} #{utax_db_file}`
+`sh #{script_directory}/uparse_commands.sh #{final_fastq_basename} #{uchime_db_file} #{utax_db_file} #{file_for_usearch_gloabal_basename}`
 
 # Running the command to give a report of counts
 `ruby #{script_directory}/get_report.rb #{final_fastq_basename}`
@@ -514,5 +567,5 @@ final_fastq_file.close
 # Running blast on the OTUs                                                                                                                            
 `usearch -ublast #{final_fastq_basename}_OTU_s2.fa -db #{lineage_fasta_file} -top_hit_only -id 0.9 -blast6out #{final_fastq_basename}_blast.txt -strand both -evalue 0.01 -threads 15 -accel 0.3`
 
-# Running the script whcih gives a final file with all the clustering info
+# Running the script whcih gives a final file with all the clustering info, taxa info and blast info
 `ruby #{script_directory}/final_parsing.rb -b #{final_fastq_basename}_blast.txt -u #{final_fastq_basename}_OTU_table_utax_map.txt -o #{final_fastq_basename}_final.txt`

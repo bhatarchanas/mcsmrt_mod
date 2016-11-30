@@ -1,17 +1,17 @@
 require 'bio'
 require 'trollop'
 
-#USAGE: ruby get_fastqs.rb -s #{sample_key_file} -o #{all_bc_reads_output_file} 
+#USAGE: ruby get_fastqs.rb -s #{sample_key_file} -o #{all_bc_reads_output_folder} 
 
 ##### Input 
 opts = Trollop::options do
 	opt :samplefile, "File with all the sample information", :type => :string, :short => "-s"
-	opt :readsoutfile, "Output FASTQ file which has all the reads in it.", :type => :string, :short => "-o"
+	opt :outfolder, "Output FASTQ file which has all the reads in it.", :type => :string, :short => "-o"
 end 
 
 ##### Assigning variables to the input and making sure we got all the inputs
-opts[:samplefile].nil?    ==false  ? sample_file = opts[:samplefile]       : abort("Must supply a 'sample file' which is a tab delimited file of sample information with '-s'")
-opts[:readsoutfile].nil?  ==false  ? reads_out_file = opts[:readsoutfile]  : abort("Must supply an 'output file name' which is the name of the fq file with all the reads from the jobs given in the sample sheet with '-o'")
+opts[:samplefile].nil? ==false  ? sample_file = opts[:samplefile]   : abort("Must supply a 'sample file' which is a tab delimited file of sample information with '-s'")
+opts[:outfolder].nil?  ==false  ? output_folder = opts[:outfolder]  : abort("Must supply an 'output file name' which is the name of the fq file with all the reads from the jobs given in the sample sheet with '-o'")
 
 ##### Making sure we can open the sample file
 File.exists?(sample_file) ? sample_file = File.open(sample_file, 'r') : abort("Can't open the sample pool file that is given to the '-s' argument!")
@@ -74,15 +74,22 @@ end
 ##### Get the tarred_folder containging the fastq files and untar it 
 def get_tarred_folder (pb_projects)
 	pb_projects.each do |id, samps|
+		#puts samps[0].inspect
 		if samps[0].end_with?("/")
 			curr_file = samps[0] + "data/barcoded-fastqs.tgz"
   			abort("The file #{curr_file} does not exist!") if !File.exists?(curr_file)
-  			`mkdir raw_data`
+  			if Dir.exists?("raw_data")
+  				`rm -rf raw_data`
+  			end
+  			Dir.mkdir("raw_data")
   			`tar xvf #{curr_file} -C raw_data/`
   		else
 			curr_file = samps[0] + "/data/barcoded-fastqs.tgz"
   			abort("The file #{curr_file} does not exist!") if !File.exists?(curr_file)
-  			`mkdir raw_data`
+  			if Dir.exists?("raw_data")
+  				`rm -rf raw_data`
+  			end
+  			Dir.mkdir("raw_data")
   			`tar xvf #{curr_file} -C raw_data/`
   		end
   	end
@@ -139,10 +146,7 @@ def get_barcode_nums (samps)
 end
 
 ##### Process each file from the tarred folder and get one file with all the reads
-def process_each_file (samps, log, reads_out_file, ccs_hash)
-  	# Opening the file with all original reads for writing
-  	all_bc_reads = File.open(reads_out_file, 'w')
-
+def process_each_file (samps, log, output_folder, ccs_hash)
   	# Write the status of whether the file was processed or not in the log file
   	log.puts("STATUS: BarcodeNum_Sample")
 
@@ -151,6 +155,9 @@ def process_each_file (samps, log, reads_out_file, ccs_hash)
 
   	# Loop through each sample pointing to a job id
   	samps[1].each do |rec|
+  		# Opening the file with the original reads are written along with the extra info
+  		all_bc_reads = File.open("#{output_folder}/#{rec.sample}.fq", "w")	
+
   		barcode_num = barcode_hash["#{rec.fow_barcode}--#{rec.rev_barcode}"]
     	base_name = "#{barcode_num}_#{rec.sample}"
     	bc = "barcodelabel=#{base_name}\;"
@@ -182,16 +189,23 @@ def process_each_file (samps, log, reads_out_file, ccs_hash)
 		else
 			log.puts("NOT FOUND: #{base_name}")	
 		end
+
+		# Close the file in which all the reads were written
+		all_bc_reads.close
 	end
-	
-	# Close the file in which all the reads were written
-	all_bc_reads.close
 end
 
 ##################### MAIN PROGRAM #######################
 
 # Lets make a log file for some stuff
 log = File.open('log.txt', 'w')
+
+# Creating a folder with the name of the given output directory
+if Dir.exists?("#{output_folder}")
+	abort("Output folder already exists. Either delete the folder if it is not needed or enter a new output folder name and re-run the command!")
+else
+	Dir.mkdir("#{output_folder}")
+end
 
 # Calling the method which counts the number of projects in the sample file
 pb_projects = num_of_projects(sample_file)
@@ -202,10 +216,10 @@ get_tarred_folder(pb_projects)
 ccs_hash = get_ccs_counts(pb_projects, script_directory)
 #puts ccs_hash
 
-# Calling the methods which help in producing one file with all the reads
+# Calling the methods which help in producing files with all the reads in the output folder provided.
 pb_projects.each do |id, samps|
 	#puts id, samps
-  	process_each_file(samps, log, reads_out_file, ccs_hash)
+  	process_each_file(samps, log, output_folder, ccs_hash)
 end
 
 # Delete the raw data files 
