@@ -20,7 +20,7 @@ MCSMRT is a tool that can be used for microbiome analysis of PacBio data. Some o
 There are 2 methods/routes you can choose from, in order to run your PacBio data through the microbiome classifier. 
 
 Method 1: In case you have already demultiplexed your data
-* Step 1: Run get_fastqs.rb in order to obtain the CCS and barcode information along with the demultiplexed FASTQ sequences in separate files within a folder name given by you. <br /> ruby get_fastqs.rb [-h] [-s SAMPLE_INFO_FILE] [-o OUTPUT_FOLDER_NAME] 
+* Step 1: Run get_fastqs.rb in order to obtain the CCS and barcode information along with the demultiplexed FASTQ sequences in separate files within a folder name given by you. <br /><br /> ruby get_fastqs.rb [-h] [-s SAMPLE_INFO_FILE] [-o OUTPUT_FOLDER_NAME] 
 
 * Step 2: Run mcsmrt.rb in order to obtain detailed information about each read and get the clustering information about the OTUs created. <br />
-This step in-turn can be used in 2 ways, one way is to speficy that all the files in a given directory can be used for clustering and another way is to provide a file with a list of file names which you want to be clustered together. <br /> ruby mcsmrt.rb [-h] [-i all_bc_reads.fastq] [-e 1] [-s 5] [-x 2000] [-n 500] [-c ../rdp_gold.fa] [-t ../lineanator/16sMicrobial_ncbi_lineage_reference_database.udb] [-l ../lineanator/16sMicrobial_ncbi_lineage.fasta] [-g ../human_g1k_v37.fasta] [-p ../primers.fasta]
+This step in-turn can be used in 2 ways, one way is to speficy that all the files in a given directory can be used for clustering and another way is to provide a file with a list of file names which you want to be clustered together. <br /><br /> ruby mcsmrt.rb [-h] [-i all_bc_reads.fastq] [-e 1] [-s 5] [-x 2000] [-n 500] [-c ../rdp_gold.fa] [-t ../lineanator/16sMicrobial_ncbi_lineage_reference_database.udb] [-l ../lineanator/16sMicrobial_ncbi_lineage.fasta] [-g ../human_g1k_v37.fasta] [-p ../primers.fasta]
